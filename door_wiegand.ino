@@ -81,16 +81,29 @@ byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing pack
 WiFiUDP udp;
 
 
+unsigned long ntp_lastset = 0;
+unsigned long ntp_lasttry = 0;
+
+
 /* compose and send an NTP time request packet */
 void ntp_send()
 {
   if (ntpServerIP == INADDR_NONE) {
-    WiFi.hostByName(NTP_SERVER, ntpServerIP);
-    Serial.print("Got NTP server " NTP_SERVER " address ");
-    Serial.println(ntpServerIP);
+    if (WiFi.hostByName(NTP_SERVER, ntpServerIP) == 1) {
+      if (ntpServerIP == IPAddress(1,0,0,0)) {
+        Serial.println("DNS lookup failed for " NTP_SERVER " try again later.");
+        ntpServerIP = INADDR_NONE;
+        return;
+      }
+      Serial.print("Got NTP server " NTP_SERVER " address ");
+      Serial.println(ntpServerIP);
+    } else {
+      Serial.println("DNS lookup of " NTP_SERVER " failed.");
+      return;
+    }
   }
   
-
+  ntp_lasttry = millis();
   memset(packetBuffer, 0, NTP_PACKET_SIZE);
   // Initialize values needed to form NTP request
   // (see URL above for details on the packets)
@@ -131,6 +144,7 @@ time_t ntp_fetch()
       const unsigned long seventyYears = 2208988800UL;
       time_t unixtime = secsSince1900 - seventyYears;
 
+      ntp_lastset = millis();
       Serial.print("NTP update unixtime=");
       Serial.println(unixtime);
       return unixtime;
@@ -442,6 +456,7 @@ String findKeyfob(unsigned int code)
   return answer;
 }
 
+// add an entry to the log
 void logEntry(time_t when, uint32_t card)
 {
   unsigned char entry[8];
@@ -459,6 +474,7 @@ void logEntry(time_t when, uint32_t card)
   f.close();
 }
 
+// produce a copy of the log file
 String printLog(int html, int last)
 {
   String out;
@@ -517,7 +533,7 @@ void setup() {
   // some serial, for debug
   Serial.begin(115200);
 
-  // The lock mechanism, set HIGH to turn on and connect ground to output pin
+  // The lock mechanism
   pinMode(MOSFET, OUTPUT);
   digitalWrite(MOSFET, LOCK_CLOSE);
 
@@ -537,7 +553,14 @@ void setup() {
 
   // if we have no config, enter config mode
   WiFiManager wfm;
+  // Only wait in config mode for 3 minutes max
+  wfm.setConfigPortalTimeout(180);
+  // Try to connect to the old Ap for this long
+  wfm.setConnectTimeout(60);
+  // okay, lets try and connect...
   wfm.autoConnect(MANAGER_AP);
+
+  Serial.println("Entering normal doorlock mode.");
 
   // we have config, enable web server
   server.on( "/", handleRoot );
@@ -562,15 +585,18 @@ void setup() {
   SPIFFS.begin();
 
   // init wiegand keyfob reader
-  Serial.println("Starting Wiegand test reader");
+  Serial.println("Configuring Wiegand keyfob reader");
   wg.begin(WD0, WD0, WD1, WD1);
 
   // setup button debounce for the release switch
   release_button.setup(ERELEASE, 20, InputDebounce::PIM_EXT_PULL_DOWN_RES);
 
+  Serial.println("Requesting time from network");
   // listener port for replies from NTP
   udp.begin(localPort);
   setSyncProvider(ntp_fetch);
+
+  Serial.println("Hackspace doorlock v1. READY");
 }
 
 unsigned long  locktime = 0;
@@ -639,4 +665,9 @@ void loop() {
     }
   }
 
+  // has ntp failed, do we need to try again?
+  if (ntp_lastset == 0 && ntp_lasttry + 300000 < millis()) {
+    Serial.println("Ask Time service to try again");
+    setSyncProvider(ntp_fetch);
+  }
 }
