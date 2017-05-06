@@ -6,6 +6,7 @@
 #include <WiFiUdp.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
+#include <ArduinoOTA.h>
 #include <WiFiManager.h>
 #include <ESP8266mDNS.h>
 #include <FS.h>
@@ -48,8 +49,8 @@
 #define MANAGER_AP "DoorLock"
 
 // Credentials required to reset or upload new info
-#define www_username "admin"
-#define www_password "wibble"
+// should contain #def's for www_username and www_password
+#include "config.h"
 
 // files to store card/fob data in
 #define CARD_TMPFILE "/cards.tmp"
@@ -64,6 +65,9 @@
 
 // ntp server to use
 #define NTP_SERVER "1.uk.pool.ntp.org"
+
+// NTP retry time (mS)
+#define NTP_RETRY 30000
 
 /***************************
  * code below
@@ -222,21 +226,35 @@ void handleRoot()
       <li><a href=\"/reset\">Reset Configuration</a>\
       <li><a href=\"/upload\">Upload Cardlist</a>";
 
-  
   if (SPIFFS.exists(LOG_FILE)) {
     out += "<li><a href=\"/wipelog\">Wipe log file</a>";
+    out += "<li><a href=\"/viewlog?count=30\">View entry log</a>";
     out += "<li><a href=\"/download_logfile\">Download full logfile</a>";
   }
   
-      
   out += "</ul>";
-
-  if (SPIFFS.exists(LOG_FILE)) out += printLog(true, 10);
-
   out += "</body>\
 </html>";
 
   server.send( 200, "text/html", out);
+}
+
+void handleViewLog()
+{
+  String out = "<html>";
+  out += "<head>";
+  out += "<title>Card entry log</title>";
+  out += "</head>";
+  out += "<body>";
+
+  int count = 10;
+  if (server.hasArg("count")) {
+    count = server.arg("count").toInt();
+  }
+  out += printLog(count);
+
+  out += "</body></html>";
+  server.send(200, "text/html", out);
 }
 
 void handleDownload()
@@ -263,13 +281,50 @@ void handleWipelog()
   server.send(200, "text/plain", "logfile deleted");
 }
 
+// need to do this chunked. 
+// https://github.com/luc-github/ESP3D/blob/master/esp3d/webinterface.cpp#L214-L394
 void handleDownloadLogfile()
 {
   if (!server.authenticate(www_username, www_password))
     return server.requestAuthentication();
 
-  String result = printLog(false, 0);
-  server.send(200, "text/csv", result);
+  File f = SPIFFS.open(LOG_FILE, "r");
+  if (!f) {
+    server.send(404, "text/plain", "logfile not found");
+    return;
+  } 
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.sendHeader("Content-Type", "text/csv", true);
+  server.sendHeader("Cache-Control", "no-cache");
+  server.send(200);
+  
+  unsigned char entry[8];
+  uint32_t * data = (uint32_t *)entry;
+
+  while (f.available()) {
+    String out;
+    f.read(entry, 8);
+    out += getDate( data[0] );
+    out += " ";
+    out += getTime( data[0] );
+    out += "," + String(data[1]) + ",";
+    
+    if (data[1] == 0) {
+      out += "Emergency Release";
+    } else {
+      String whom = findKeyfob(data[1]);
+      if (whom == "") {
+        out += "Unknown keyfob";
+      } else {
+        out += whom;
+      }
+    }
+    out += "\n";
+    server.sendContent(out);
+  }
+  f.close();
+  server.sendContent("");  
 }
 
 void handleNotFound() {
@@ -475,7 +530,7 @@ void logEntry(time_t when, uint32_t card)
 }
 
 // produce a copy of the log file
-String printLog(int html, int last)
+String printLog(int last)
 {
   String out;
   File f = SPIFFS.open(LOG_FILE, "r");
@@ -489,37 +544,37 @@ String printLog(int html, int last)
     int pos = f.size() / 8;
     if (pos > last) pos -= last; else pos = 0;
     f.seek( pos * 8, SeekSet);
-    if (html) out += "Last " + String(last) + " log entries :-";
+    out += "Last " + String(last) + " log entries :-";
   }
-  if (html) out += "<ul>";
+  out += "<ul>";
   
   while (f.available()) {
     f.read(entry, 8);
-    if (html) out += "<li> ";
+    out += "<li> ";
     out += getDate( data[0] );
     out += " ";
     out += getTime( data[0] );
-    if (html) out += " - "; else out += "," + String(data[1]) + ",";
+    out += " - ";
     
     if (data[1] == 0) {
-      if (html) out += "<i>";
+      out += "<i>";
       out += "Emergency Release";
-      if (html) out += "</i>";
+      out += "</i>";
     } else {
       String whom = findKeyfob(data[1]);
       if (whom == "") {
-        if (html) out += "<i>by ";
+        out += "<i>by ";
         out += "Unknown keyfob";
-        if (html) out += "</i>";
+        out += "</i>";
       } else {
         out += whom;
       }
-      if (html) out += " (" + String(data[1]) + ")";
+      out += " (" + String(data[1]) + ")";
     }
     out += "\n";
   }
   f.close();
-  if (html) out += "</ul>";
+  out += "</ul>";
   return out;
 }
 
@@ -560,13 +615,34 @@ void setup() {
   // okay, lets try and connect...
   wfm.autoConnect(MANAGER_AP);
 
+  Serial.println("Enabling OTA update");
+  ArduinoOTA.setPassword(www_password);
+  ArduinoOTA.onStart([]() {
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
   Serial.println("Entering normal doorlock mode.");
-
+  
   // we have config, enable web server
   server.on( "/", handleRoot );
   server.on( "/reset", handleReset );
   server.on( "/download", handleDownload );
   server.on( "/wipelog", handleWipelog );
+  server.on( "/viewlog", handleViewLog );
   server.on( "/download_logfile", handleDownloadLogfile );
   server.onFileUpload( handleFileUpload);
   server.on( "/upload", HTTP_GET, handleUploadRequest);
@@ -630,6 +706,7 @@ void loop() {
   }
   // handle web requests
   server.handleClient();
+  ArduinoOTA.handle();
 
   unsigned int ertime = release_button.process(millis());
   unsigned int count = release_button.getStateOnCount();
@@ -666,7 +743,7 @@ void loop() {
   }
 
   // has ntp failed, do we need to try again?
-  if (ntp_lastset == 0 && ntp_lasttry + 300000 < millis()) {
+  if (ntp_lastset == 0 && ntp_lasttry + NTP_RETRY < millis()) {
     Serial.println("Ask Time service to try again");
     setSyncProvider(ntp_fetch);
   }
