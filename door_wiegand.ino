@@ -90,10 +90,13 @@ unsigned long ntp_lasttry = 0;
 
 bool ota_enabled = false;
 
-
+/* User requests to enable OTA mode */
 void enable_ota(void)
 {
   if (!ota_enabled) {
+    if (!server.authenticate(www_username, www_password))
+      return server.requestAuthentication();
+      
     Serial.println("Enabling OTA Mode.");
     ArduinoOTA.begin();
     ota_enabled = true;
