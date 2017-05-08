@@ -88,6 +88,18 @@ WiFiUDP udp;
 unsigned long ntp_lastset = 0;
 unsigned long ntp_lasttry = 0;
 
+bool ota_enabled = false;
+
+
+void enable_ota(void)
+{
+  if (!ota_enabled) {
+    Serial.println("Enabling OTA Mode.");
+    ArduinoOTA.begin();
+    ota_enabled = true;
+  }
+  handleRoot();
+}
 
 /* compose and send an NTP time request packet */
 void ntp_send()
@@ -230,6 +242,12 @@ void handleRoot()
     out += "<li><a href=\"/wipelog\">Wipe log file</a>";
     out += "<li><a href=\"/viewlog?count=30\">View entry log</a>";
     out += "<li><a href=\"/download_logfile\">Download full logfile</a>";
+  }
+
+  if (ota_enabled) {
+    out += "<li>OTA Updates ENABLED.";
+  } else {
+    out += "<li><a href=\"/enable_ota\">Enable OTA Updates</a>";
   }
   
   out += "</ul>";
@@ -615,7 +633,7 @@ void setup() {
   // okay, lets try and connect...
   wfm.autoConnect(MANAGER_AP);
 
-  Serial.println("Enabling OTA update");
+  Serial.println("Configuring OTA update");
   ArduinoOTA.setPassword(www_password);
   ArduinoOTA.onStart([]() {
     Serial.println("Start");
@@ -634,7 +652,9 @@ void setup() {
     else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
     else if (error == OTA_END_ERROR) Serial.println("End Failed");
   });
-  ArduinoOTA.begin();
+  //ArduinoOTA.begin();
+
+  
   Serial.println("Entering normal doorlock mode.");
   
   // we have config, enable web server
@@ -643,6 +663,7 @@ void setup() {
   server.on( "/download", handleDownload );
   server.on( "/wipelog", handleWipelog );
   server.on( "/viewlog", handleViewLog );
+  server.on( "/enable_ota", enable_ota );
   server.on( "/download_logfile", handleDownloadLogfile );
   server.onFileUpload( handleFileUpload);
   server.on( "/upload", HTTP_GET, handleUploadRequest);
@@ -672,7 +693,7 @@ void setup() {
   udp.begin(localPort);
   setSyncProvider(ntp_fetch);
 
-  Serial.println("Hackspace doorlock v1. READY");
+  Serial.println("Hackspace doorlock v1.2 READY");
 }
 
 unsigned long  locktime = 0;
@@ -706,7 +727,7 @@ void loop() {
   }
   // handle web requests
   server.handleClient();
-  ArduinoOTA.handle();
+  if (ota_enabled) ArduinoOTA.handle();
 
   unsigned int ertime = release_button.process(millis());
   unsigned int count = release_button.getStateOnCount();
