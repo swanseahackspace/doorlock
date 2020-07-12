@@ -1,3 +1,4 @@
+#undef DEBUG
 #include <TimeLib.h>
 #include <Time.h>
 #include <InputDebounce.h>
@@ -13,24 +14,24 @@
 
 // MOSFET for door lock activation
 // ON/HIGH == ground the output screw terminal
-#define MOSFET 16
+#define MOSFET D8 // Orig: 16/D0
 
 // Pin for LED / WS2812
-#define STATUSLED 2
+#define STATUSLED 2 // Orig: 2/D4
 
 // Wiegand keyfob reader pins
-#define WD0 12
-#define WD1 13
+#define WD0 D6 //Orig: 12/D6
+#define WD1 D7 //Orig: 13/D7
 
 // Door lock sense pin
-#define SENSE 14
+#define SENSE D3 //Orig: 14/D5
 
 // emergency release switch
-#define ERELEASE 15
+#define ERELEASE D4 //Orig: 15/D8
 
 // Buzzer/LED on keyfob control
-#define BUZZER 4   // Gnd to beep
-#define DOORLED 5  // low = green, otherwise red
+#define BUZZER D5   // Gnd to beep Orig: 4/D2
+#define DOORLED D0   // low = green, otherwise red Orig: D1
 
 // orientation of some signals
 #define DLED_GREEN LOW
@@ -64,7 +65,7 @@
 #define CONFIG_PORT 80
 
 // ntp server to use
-#define NTP_SERVER "1.uk.pool.ntp.org"
+#define NTP_SERVER "192.168.50.254"
 
 // NTP retry time (mS)
 #define NTP_RETRY 30000
@@ -76,7 +77,7 @@ WIEGAND wg;
 ESP8266WebServer server(CONFIG_PORT);
 
 const unsigned int localPort = 2390;
-IPAddress ntpServerIP;
+IPAddress ntpServerIP = INADDR_NONE;
 
 const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
 
@@ -90,6 +91,16 @@ unsigned long ntp_lasttry = 0;
 
 bool ota_enabled = false;
 
+String commonHead = "<html>\
+  <head>\
+    <title>Door Lock</title>\
+    <style>\
+      body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; }\
+    </style>\
+  </head>\
+  <body>";
+
+
 /* User requests to enable OTA mode */
 void enable_ota(void)
 {
@@ -101,7 +112,9 @@ void enable_ota(void)
     ArduinoOTA.begin();
     ota_enabled = true;
   }
-  handleRoot();
+  String out = commonHead;
+  out += "<h1>OTA mode enabled</h1><a href=\"/\">Back</a></body></html>";
+  server.send( 200, "text/html", out);
 }
 
 /* compose and send an NTP time request packet */
@@ -197,16 +210,8 @@ void handleRoot()
   
   snprintf(mtime, 16, "%dd %02d:%02d:%02d", day, hr % 24, mi % 60, sec % 60);
     
-  String out = "<html>\
-  <head>\
-    <title>Door Lock</title>\
-    <style>\
-      body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; }\
-    </style>\
-  </head>\
-  <body>\
-    <h1>Door Lock!</h1>\
-    <p>Uptime: " + (String)mtime + "</p>\n";
+  String out = commonHead;
+  out += "<h1>Door Lock!</h1>\<p>Uptime: " + (String)mtime + "</p>\n";
 
   if (timeStatus() == timeSet) {
     time_t when = now();
@@ -237,9 +242,9 @@ void handleRoot()
      out += ".</p>";
   }
 
-  out += "<ul>\
-      <li><a href=\"/reset\">Reset Configuration</a>\
-      <li><a href=\"/upload\">Upload Cardlist</a>";
+  out += "<ul>";
+  out += "<li><a href=\"/reset\">Reset Configuration</a>";
+  out += "<li><a href=\"/upload\">Upload Cardlist</a>";
 
   if (SPIFFS.exists(LOG_FILE)) {
     out += "<li><a href=\"/wipelog\">Wipe log file</a>";
@@ -248,25 +253,23 @@ void handleRoot()
   }
 
   if (ota_enabled) {
-    out += "<li>OTA Updates ENABLED.";
+    out += "<li>OTA Updates <strong>ENABLED</strong>.";
   } else {
     out += "<li><a href=\"/enable_ota\">Enable OTA Updates</a>";
   }
   
   out += "</ul>";
-  out += "</body>\
-</html>";
+  out += "</body></html>";
 
   server.send( 200, "text/html", out);
 }
 
 void handleViewLog()
 {
-  String out = "<html>";
-  out += "<head>";
-  out += "<title>Card entry log</title>";
-  out += "</head>";
-  out += "<body>";
+  if (!server.authenticate(www_username, www_password))
+    return server.requestAuthentication();
+  String out = commonHead;
+  out += "<h1>Card entry log</h1>";
 
   int count = 10;
   if (server.hasArg("count")) {
@@ -274,7 +277,7 @@ void handleViewLog()
   }
   out += printLog(count);
 
-  out += "</body></html>";
+  out += "<a href=\"/\">Back</a></body></html>";
   server.send(200, "text/html", out);
 }
 
@@ -368,12 +371,13 @@ void handleReset() {
 }
 
 void handleUploadRequest() {
-  String out = "<html><head><title>Upload Keyfob list</title></head><body>\
+  String out = commonHead;
+  out +="<h1>Upload Keyfob list</h1>\
 <form enctype=\"multipart/form-data\" action=\"/upload\" method=\"POST\">\
 <input type=\"hidden\" name=\"MAX_FILE_SIZE\" value=\"32000\" />\
 Select file to upload: <input name=\"file\" type=\"file\" />\
 <input type=\"submit\" value=\"Upload file\" />\
-</form></body></html>";
+</form><a href=\"/\">Back</a></body></html>";
   server.send(200, "text/html", out);
 }
 
@@ -417,17 +421,17 @@ void handleFileUpload()
 
 void handleUploadComplete()
 {
-  String out = "Upload finished.";
+  String out = commonHead + "<h1>Upload finished.</h1><p>";
   if (upload_code != 200) {
     out += "Error: "+upload_error;
   } else {
-    out += " Success";
+    out += "Success";
     // upload with no errors, replace old one
     SPIFFS.remove(CARD_FILE);
     SPIFFS.rename(CARD_TMPFILE, CARD_FILE);
   }
-  out += "</p><a href=\"/\">Back</a>";
-  server.send(upload_code, "text/plain", out);
+  out += "</p><a href=\"/\">Back</a></body></html>";
+  server.send(upload_code, "text/html", out);
 }
 
 
@@ -686,7 +690,7 @@ void setup() {
 
   // init wiegand keyfob reader
   Serial.println("Configuring Wiegand keyfob reader");
-  wg.begin(WD0, WD0, WD1, WD1);
+  wg.begin(WD0, WD1);
 
   // setup button debounce for the release switch
   release_button.setup(ERELEASE, 20, InputDebounce::PIM_EXT_PULL_DOWN_RES);
@@ -733,7 +737,7 @@ void loop() {
   if (ota_enabled) ArduinoOTA.handle();
 
   unsigned int ertime = release_button.process(millis());
-  unsigned int count = release_button.getStateOnCount();
+  unsigned int count = release_button.getStatePressedCount();
   static unsigned last_count = 0;
   if (ertime > 0) {
     if (count != last_count) {
