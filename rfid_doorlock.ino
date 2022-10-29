@@ -84,6 +84,8 @@
 /***************************
  * code below
  */
+
+// OLED screen shield for extra debug info (optional)
 U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ D1, /* data=*/ D2);
 
  
