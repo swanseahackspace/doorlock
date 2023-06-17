@@ -47,8 +47,8 @@
 // orientation of some signals
 #define DLED_GREEN LOW
 #define DLED_RED HIGH
-#define LOCK_OPEN HIGH
-#define LOCK_CLOSE LOW
+#define LOCK_OPEN LOW
+#define LOCK_CLOSE HIGH
 #define BUZZ_ON LOW
 #define BUZZ_OFF HIGH
 
