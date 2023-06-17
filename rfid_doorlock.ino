@@ -76,7 +76,7 @@
 #define CONFIG_PORT 80
 
 // ntp server to use
-#define NTP_SERVER "1.uk.pool.ntp.org"
+#define NTP_SERVER "192.168.50.1"
 
 // NTP retry time (mS)
 #define NTP_RETRY 30000
