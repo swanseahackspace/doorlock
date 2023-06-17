@@ -54,7 +54,7 @@ void WIEGAND::begin(int pinD0, int pinIntD0, int pinD1, int pinIntD1)
 	attachInterrupt(pinIntD1, ReadD1, FALLING);	// Hardware interrupt - high to low pulse
 }
 
-void WIEGAND::ReadD0 ()
+void IRAM_ATTR WIEGAND::ReadD0 ()
 {
 	_bitCount++;				// Increament bit count for Interrupt connected to D0
 	if (_bitCount>31)			// If bit count more than 31, process high bits
@@ -70,7 +70,7 @@ void WIEGAND::ReadD0 ()
 	_lastWiegand = millis();	// Keep track of last wiegand bit received
 }
 
-void WIEGAND::ReadD1()
+void IRAM_ATTR WIEGAND::ReadD1()
 {
 	_bitCount ++;				// Increment bit count for Interrupt connected to D1
 	if (_bitCount>31)			// If bit count more than 31, process high bits
