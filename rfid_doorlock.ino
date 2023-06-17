@@ -88,12 +88,11 @@
 // OLED screen shield for extra debug info (optional)
 U8X8_SSD1306_128X64_NONAME_SW_I2C u8x8(/* clock=*/ D1, /* data=*/ D2);
 
- 
 WIEGAND wg;
 ESP8266WebServer server(CONFIG_PORT);
 
 const unsigned int localPort = 2390;
-IPAddress ntpServerIP;
+IPAddress ntpServerIP = INADDR_NONE;
 
 const int NTP_PACKET_SIZE = 48; // NTP time stamp is in the first 48 bytes of the message
 
@@ -819,7 +818,7 @@ void loop() {
   }
 
   // has ntp failed, do we need to try again?
-  if (ntp_lastset == 0 && ntp_lasttry + NTP_RETRY < millis()) {
+  if (ntp_lastset == 0 && ((ntp_lasttry + NTP_RETRY) < millis())) {
     Serial.println("Ask Time service to try again");
     setSyncProvider(ntp_fetch);
   }
