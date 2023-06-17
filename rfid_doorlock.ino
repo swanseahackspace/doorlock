@@ -101,6 +101,8 @@ byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing pack
 WiFiUDP udp;
 
 
+unsigned int last_fob = 0;
+time_t last_fob_time = 0;
 unsigned long ntp_lastset = 0;
 unsigned long ntp_lasttry = 0;
 
@@ -238,6 +240,10 @@ void handleRoot()
   out += "<p>Lock is currently ";
   if (digitalRead(SENSE) == HIGH) out += "LOCKED"; else out += "OPEN";
   out += "</p>\n";
+
+  if (last_fob) {
+    out += "<p>Last fob scanned: " + String(last_fob) + " at " + getDate(last_fob_time) + " " + getTime(last_fob_time) + "</p>\n";
+  }
 
   if (SPIFFS.exists(CARD_FILE)) {
     
@@ -808,12 +814,14 @@ void loop() {
     Serial.print(", TYPE W");
     Serial.println(wg.getWiegandType());
 
+    last_fob = code;
+    last_fob_time = now();
     String who = findKeyfob(code);
     if (who != NULL) {
       Serial.print("Unlocking door for ");
       Serial.println(who);
       unlock_door();
-      logEntry(now(), code);
+      logEntry(last_fob_time, code);
     }
   }
 
