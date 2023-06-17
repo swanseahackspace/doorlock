@@ -100,7 +100,6 @@ byte packetBuffer[ NTP_PACKET_SIZE]; //buffer to hold incoming and outgoing pack
 
 WiFiUDP udp;
 
-
 unsigned int last_fob = 0;
 time_t last_fob_time = 0;
 unsigned long ntp_lastset = 0;
@@ -114,7 +113,7 @@ void enable_ota(void)
   if (!ota_enabled) {
     if (!server.authenticate(www_username, www_password))
       return server.requestAuthentication();
-      
+
     Serial.println("Enabling OTA Mode.");
     ArduinoOTA.begin();
     ota_enabled = true;
@@ -173,6 +172,7 @@ time_t ntp_fetch()
 
   while (millis() - beginWait < 2500) {
     int size = udp.parsePacket();
+
     if (size >= NTP_PACKET_SIZE) {
       udp.read(packetBuffer, NTP_PACKET_SIZE);
   
@@ -212,9 +212,9 @@ void handleRoot()
   int mi = sec / 60;
   int hr = mi / 60;
   int day = hr / 24;
-  
+
   snprintf(mtime, 16, "%dd %02d:%02d:%02d", day, hr % 24, mi % 60, sec % 60);
-    
+
   String out = "<html>\
   <head>\
     <title>Door Lock</title>\
@@ -229,8 +229,9 @@ void handleRoot()
   if (timeStatus() == timeSet) {
     time_t when = now();
     out += "<p>Time now: " + getDate(when) + " " + getTime(when) + "</p>\n";
+  } else {
+    out += "<p>Time not set (NTP Failed?)</p>\n";
   }
-
 
   FSInfo fs_info;
   if (SPIFFS.info(fs_info)) {
@@ -439,7 +440,8 @@ void handleFileUpload()
 
 void handleUploadComplete()
 {
-  String out = "Upload finished.";
+  String out = "<html><head><title>Upload completed</title></head><body>\
+    <h1>Upload complete</h1><p>";
   if (upload_code != 200) {
     out += "Error: "+upload_error;
   } else {
@@ -448,8 +450,8 @@ void handleUploadComplete()
     SPIFFS.remove(CARD_FILE);
     SPIFFS.rename(CARD_TMPFILE, CARD_FILE);
   }
-  out += "</p><a href=\"/\">Back</a>";
-  server.send(upload_code, "text/plain", out);
+  out += "</p><a href=\"/\">Back</a></body></html>";
+  server.send(upload_code, "text/html", out);
 }
 
 
