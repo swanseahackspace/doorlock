@@ -2,12 +2,14 @@
 #include <InputDebounce.h>
 #include <Wiegand.h>
 #include <ESP8266WiFi.h>
+#include <WiFiManager.h>
 #include <WiFiUdp.h>
 #include <DNSServer.h>
 #include <ESP8266WebServer.h>
-#include <ArduinoOTA.h>
-#include <WiFiManager.h>
 #include <ESP8266mDNS.h>
+#include <ArduinoOTA.h>
+
+
 #include <FS.h>
 #include <U8x8lib.h>
 
@@ -242,10 +244,6 @@ void handleRoot()
   if (digitalRead(SENSE) == HIGH) out += "LOCKED"; else out += "OPEN";
   out += "</p>\n";
 
-  if (last_fob) {
-    out += "<p>Last fob scanned: " + String(last_fob) + " at " + getDate(last_fob_time) + " " + getTime(last_fob_time) + "</p>\n";
-  }
-
   if (SPIFFS.exists(CARD_FILE)) {
     
      out += "<p>Cardfile: " + String(CARD_FILE) + " is " + fileSize(CARD_FILE) + " bytes";
@@ -263,7 +261,9 @@ void handleRoot()
   out += "<ul>\
       <li><a href=\"/reset\">Reset Configuration</a>\
       <li><a href=\"/upload\">Upload Cardlist</a>";
-
+  if (last_fob) {
+    out += "<li><a href=\"/lastfob\">Show last scanned fob</a>";
+  }
   if (SPIFFS.exists(LOG_FILE)) {
     out += "<li><a href=\"/wipelog\">Wipe log file</a>";
     out += "<li><a href=\"/viewlog?count=30\">View entry log</a>";
@@ -287,7 +287,7 @@ void handleViewLog()
 {
   String out = "<html>";
   out += "<head>";
-  out += "<title>Card entry log</title>";
+  out += "<title>Door Lock: Card entry log</title>";
   out += "</head>";
   out += "<body>";
 
@@ -297,6 +297,25 @@ void handleViewLog()
   }
   out += printLog(count);
 
+  out += "</body></html>";
+  server.send(200, "text/html", out);
+}
+
+void handleLastFob()
+{
+  if (!server.authenticate(www_username, www_password))
+    return server.requestAuthentication();
+  String out = "<html>";
+  out += "<head>";
+  out += "<title>Door Lock: Last Scanned Fob</title>";
+  out += "</head>";
+  out += "<body>";
+  if (last_fob) {
+    out += "<p>Last fob scanned: " + String(last_fob) + " at " + getDate(last_fob_time) + " " + getTime(last_fob_time) + "</p>\n";
+  } else {
+    out += "<p>No last scanned fob in memory</p>";
+  }
+  out += "<li><a href=\"/\">Back to main page</a>";
   out += "</body></html>";
   server.send(200, "text/html", out);
 }
@@ -699,6 +718,7 @@ void setup() {
   server.on( "/download", handleDownload );
   server.on( "/wipelog", handleWipelog );
   server.on( "/viewlog", handleViewLog );
+  server.on( "/lastfob", handleLastFob );
   server.on( "/enable_ota", enable_ota );
   server.on( "/download_logfile", handleDownloadLogfile );
   server.onFileUpload( handleFileUpload);
